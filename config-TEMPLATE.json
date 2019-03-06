@@ -1,0 +1,8 @@
+{
+  "AppSettings": {
+    "SiteEmailAddress": "elitefusion92@gmail.com"
+  },
+  "Data": {
+    "TwitterCloneContextConnection": "User ID={USERNAME};Password={PASSWORD};Host={SERVERURL};Port=5432;Database=TwitterCloneDB;Pooling=true;Connection Lifetime=0;"
+  }
+}
