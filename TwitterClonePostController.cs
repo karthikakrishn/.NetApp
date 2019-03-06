@@ -1,0 +1,97 @@
+﻿using AutoMapper;
+using TwitterClone.Hubs;
+using TwitterClone.Database;
+using TwitterClone.ViewModels;
+using Microsoft.AspNet.Authorization;
+using Microsoft.AspNet.Mvc;
+using Microsoft.AspNet.SignalR;
+using Microsoft.AspNet.SignalR.Infrastructure;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Threading.Tasks;
+using TwitterClone.Models;
+using Microsoft.AspNet.Identity;
+using System.Security.Claims;
+
+namespace TwitterClone.Controllers.Api
+{
+    [Microsoft.AspNet.Authorization.Authorize]
+    [Route("api/TwitterCloneposts")]
+    public class TwitterClonePostController : ApiController
+    {
+        private ILogger m_logger;
+        private ITwitterCloneRepository m_repository;
+        private IConnectionManager m_connectionManager;
+        private UserManager<TwitterCloneUser> m_userManager;
+
+        public TwitterClonePostController(ITwitterCloneRepository a_repository, ILogger<TwitterClonePostController> a_logger, IConnectionManager a_connectionManager, UserManager<TwitterCloneUser> a_userManager)
+        {
+            m_repository = a_repository;
+            m_logger = a_logger;
+            m_connectionManager = a_connectionManager;
+            m_userManager = a_userManager;
+        }
+
+        [HttpGet("")]
+        public JsonResult Get()
+        {
+            var results = Mapper.Map<IEnumerable<TwitterClonePostViewModel>>(m_repository.GetAllPosts());
+            return Json(results);
+        }
+
+        [Route("{userName}")]
+        public async Task<JsonResult> Get(string userName)
+        {
+            var user = await m_userManager.FindByNameAsync(userName);
+            var results = Mapper.Map<IEnumerable<TwitterClonePostViewModel>>(m_repository.GetAllPostsByUserId(user.Id));
+            return Json(results);
+        }
+
+        [HttpPost("")]
+        public async Task<JsonResult> Post([FromBody]TwitterClonePostViewModel vm)
+        {
+            try
+            {
+                if (ModelState.IsValid)
+                {
+                    var newPost = Mapper.Map<TwitterClonePost>(vm);
+                    var user = await m_userManager.FindByIdAsync(User.GetUserId());
+                    if (!user.EmailConfirmed)
+                    {
+                        Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                        return Json(new { Message = "You must confirm your email address before you can post."});
+                    }
+
+                    newPost.User = user;
+                    newPost.PostTime = DateTimeOffset.UtcNow;
+
+                    //Save to the database
+                    m_logger.LogInformation("Attemting to save a new post");
+                    m_repository.AddPost(newPost);
+
+                    if (m_repository.SaveAll())
+                    {
+                        Response.StatusCode = (int)HttpStatusCode.Created;
+
+                        IHubContext context = m_connectionManager.GetHubContext<TwitterClonePostHub>();
+                        context.Clients.All.RefreshTwitterClones();
+
+                        return Json(new { Message = "Success" });
+                    }
+                }
+
+                Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                return Json(new { Message = "Failed", ModelState = ModelState });
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError("Failed to save new post", ex);
+                Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                return Json(new { Message = ex.Message});
+            }
+            
+        }
+    }
+}
